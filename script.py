@@ -46,14 +46,14 @@ def ExtractFramesandAudioUsingFFMPEG(video_path, extracted_dir):
 
 def SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir,extracted_dir):
     audio_path = os.path.join(extracted_dir, "audio.aac")
-    subprocess.run(['ffmpeg', '-y', '-framerate', '60', '-i', f'{processed_dir}/IMG%04d.png', '-c:v', 'libx264', f'{result_dir}/temp_video.mp4'], check=True)
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/temp_video.mp4', '-i', audio_path, '-c:v', 'copy', '-c:a', 'copy', '-map', '0:v:0', '-map', '1:a:0', f'{result_dir}/Video_with_audio.mp4'], check=True)
+    subprocess.run(['ffmpeg', '-y', '-framerate', '60', '-i', f'{processed_dir}/IMG%04d.png', '-c:v', 'copy', f'{result_dir}/temp_video.mkv'], check=True)
+    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/temp_video.mkv', '-i', audio_path, '-c:v', 'copy', '-c:a', 'copy', '-map', '0:v:0', '-map', '1:a:0', f'{result_dir}/Video_with_audio.mkv'], check=True)
 
 def SaveVideoToH265(result_dir, video_name):
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mp4', '-vf', "scale='-2:min(1080,ih)'",'-r', '60', '-c:v', 'libx265', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
+    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', '60', '-c:v', 'libx265', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
 
 def SaveVideoToH264(result_dir, video_name):
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mp4', '-vf', "scale='-2:min(1080,ih)'",'-r', '60', '-c:v', 'libx264', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
+    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', '60', '-c:v', 'libx264', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
 
 def CropImageOnVerticalOrientation(Img):
     h, w = Img.shape[:2]
@@ -142,3 +142,4 @@ if __name__ == "__main__":
 
     for video in videos:
         process_video(video, result_base)
+
