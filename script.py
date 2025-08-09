@@ -17,7 +17,7 @@ def clean_results_directory(results_dir, final_video_name):
         item_path = os.path.join(results_dir, item)
         
         # Mantém apenas o vídeo final
-        if item == final_video_name:
+        if item in final_video_name:
             continue
         
         # Remove diretórios
@@ -29,8 +29,8 @@ def clean_results_directory(results_dir, final_video_name):
 
 def ExtractFramesandAudioUsingFFMPEG(video_path, extracted_dir):
     os.makedirs(extracted_dir, exist_ok=True)
-    TRIM_START = 6
-    TRIM_END = 6
+    TRIM_START = 0
+    TRIM_END = 0
     duration_cmd = [
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", video_path
@@ -44,16 +44,16 @@ def ExtractFramesandAudioUsingFFMPEG(video_path, extracted_dir):
     audio_path = os.path.join(extracted_dir, 'audio.aac')
     subprocess.run(['ffmpeg', '-y', '-i', video_path, '-ss', str(TRIM_START), '-t', str(trimmed_duration), '-vn', '-acodec', 'copy', audio_path], check=True)
 
-def SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir,extracted_dir):
+def SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir,extracted_dir, fps):
     audio_path = os.path.join(extracted_dir, "audio.aac")
-    subprocess.run(['ffmpeg', '-y', '-framerate', '60', '-i', f'{processed_dir}/IMG%04d.png', '-c:v', 'copy', f'{result_dir}/temp_video.mkv'], check=True)
+    subprocess.run(['ffmpeg', '-y', '-framerate', str(fps), '-i', f'{processed_dir}/IMG%04d.png', '-c:v', 'copy', f'{result_dir}/temp_video.mkv'], check=True)
     subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/temp_video.mkv', '-i', audio_path, '-c:v', 'copy', '-c:a', 'copy', '-map', '0:v:0', '-map', '1:a:0', f'{result_dir}/Video_with_audio.mkv'], check=True)
 
-def SaveVideoToH265(result_dir, video_name):
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', '60', '-c:v', 'libx265', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
+def SaveVideoToH265(result_dir, video_name, fps):
+    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', str(fps), '-c:v', 'libx265', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
 
-def SaveVideoToH264(result_dir, video_name):
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', '60', '-c:v', 'libx264', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
+def SaveVideoToH264(result_dir, video_name, fps):
+    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', str(fps), '-c:v', 'libx264', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
 
 def CropImageOnVerticalOrientation(Img):
     h, w = Img.shape[:2]
@@ -116,21 +116,25 @@ def ProcessExtractedImages(extracted_dir, processed_dir):
         list(tqdm.tqdm(pool.imap_unordered(process_single_image, args), total=len(args)))
 
 def process_video(video_path, base_result_dir):
-    video_name = Path(video_path).stem + ".mp4"
+    video_name = Path(video_path).stem 
     result_dir = os.path.join(base_result_dir, Path(video_path).stem)
     extracted_dir = os.path.join(result_dir, "Extracted")
     processed_dir = os.path.join(result_dir, "Processed")
     os.makedirs(extracted_dir, exist_ok=True)
     os.makedirs(processed_dir, exist_ok=True)
 
+    fps = 30
+    final_filename_h264 = video_name + "_H264_.mp4"
+    final_filename_h265 = video_name + "_H265_.mp4"
+
     print(f" Processando: {video_name}")
     ExtractFramesandAudioUsingFFMPEG(video_path, extracted_dir)
     ProcessExtractedImages(extracted_dir, processed_dir)
-    SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir, extracted_dir)
-    #SaveVideoToH265(result_dir, video_name)
-    SaveVideoToH264(result_dir, video_name)
+    SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir, extracted_dir, fps)
+    SaveVideoToH265(result_dir, final_filename_h265, fps)
+    SaveVideoToH264(result_dir, final_filename_h264, fps)
     print(f" Finalizado: {video_name}")
-    clean_results_directory(result_dir, video_name)
+    clean_results_directory(result_dir, [final_filename_h264,final_filename_h265])
 
 if __name__ == "__main__":
     project_dir = os.path.dirname(os.path.abspath(__file__))
@@ -138,7 +142,7 @@ if __name__ == "__main__":
     result_base = os.path.join(project_dir, "Results")
 
     os.makedirs(result_base, exist_ok=True)
-    videos = [os.path.join(source_dir, f) for f in os.listdir(source_dir) if f.lower().endswith(".mp4")]
+    videos = [os.path.join(source_dir, f) for f in os.listdir(source_dir) if f.lower().endswith(".mov")]
 
     for video in videos:
         process_video(video, result_base)
