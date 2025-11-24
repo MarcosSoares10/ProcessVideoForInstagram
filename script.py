@@ -12,49 +12,122 @@ def listFiles(path):
             for dirName, _, fileList in os.walk(path)
             for filename in fileList if filename.lower().endswith(".png")]
 
-def clean_results_directory(results_dir, final_video_name):
+def clean_results_directory(results_dir, final_video_names):
     for item in os.listdir(results_dir):
         item_path = os.path.join(results_dir, item)
-        
-        # Mantém apenas o vídeo final
-        if item in final_video_name:
+
+        # mantém apenas os vídeos finais
+        if item in final_video_names:
             continue
-        
-        # Remove diretórios
+
+        # remove diretórios e arquivos temporários
         if os.path.isdir(item_path):
             shutil.rmtree(item_path)
-        # Remove arquivos
         else:
             os.remove(item_path)
 
+# -----------------------------------------------------------
+# NOVO: detectar se o vídeo possui áudio
+# -----------------------------------------------------------
+def video_has_audio(video_path):
+    cmd = [
+        "ffprobe", "-v", "error",
+        "-select_streams", "a",
+        "-show_entries", "stream=codec_type",
+        "-of", "csv=p=0",
+        video_path
+    ]
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return b"audio" in result.stdout
+
+# -----------------------------------------------------------
+# EXTRAÇÃO DE FRAMES + ÁUDIO (agora com fallback)
+# -----------------------------------------------------------
 def ExtractFramesandAudioUsingFFMPEG(video_path, extracted_dir):
     os.makedirs(extracted_dir, exist_ok=True)
     TRIM_START = 0
     TRIM_END = 0
+
+    # Pega duração do vídeo
     duration_cmd = [
         "ffprobe", "-v", "error", "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1", video_path
     ]
-    
     result = subprocess.run(duration_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     total_duration = float(result.stdout.decode().strip())
     trimmed_duration = total_duration - TRIM_START - TRIM_END
 
-    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-ss', str(TRIM_START), '-t', str(trimmed_duration), '-q:v', '2', f'{extracted_dir}/IMG%04d.png'], check=True)
-    audio_path = os.path.join(extracted_dir, 'audio.aac')
-    subprocess.run(['ffmpeg', '-y', '-i', video_path, '-ss', str(TRIM_START), '-t', str(trimmed_duration), '-vn', '-acodec', 'copy', audio_path], check=True)
+    # extrai frames
+    subprocess.run([
+        'ffmpeg', '-y', '-i', video_path,
+        '-ss', str(TRIM_START), '-t', str(trimmed_duration),
+        '-q:v', '2', f'{extracted_dir}/IMG%04d.png'
+    ], check=True)
 
-def SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir,extracted_dir, fps):
+    # verifica áudio
+    if video_has_audio(video_path):
+        audio_path = os.path.join(extracted_dir, "audio.aac")
+        subprocess.run([
+            'ffmpeg', '-y', '-i', video_path,
+            '-ss', str(TRIM_START), '-t', str(trimmed_duration),
+            '-vn', '-acodec', 'copy', audio_path
+        ], check=True)
+    else:
+        print("⚠️ Vídeo sem áudio — pulando extração de áudio.")
+
+# -----------------------------------------------------------
+# SALVA AS IMAGENS PROCESSADAS EM UM VÍDEO
+# -----------------------------------------------------------
+def SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir, extracted_dir, fps):
     audio_path = os.path.join(extracted_dir, "audio.aac")
-    subprocess.run(['ffmpeg', '-y', '-framerate', str(fps), '-i', f'{processed_dir}/IMG%04d.png', '-c:v', 'copy', f'{result_dir}/temp_video.mkv'], check=True)
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/temp_video.mkv', '-i', audio_path, '-c:v', 'copy', '-c:a', 'copy', '-map', '0:v:0', '-map', '1:a:0', f'{result_dir}/Video_with_audio.mkv'], check=True)
+    has_audio = os.path.exists(audio_path)
 
+    # vídeo temporário de imagens
+    subprocess.run([
+        'ffmpeg', '-y', '-framerate', str(fps),
+        '-i', f'{processed_dir}/IMG%04d.png',
+        '-c:v', 'copy', f'{result_dir}/temp_video.mkv'
+    ], check=True)
+
+    # vídeo final com ou sem áudio
+    if has_audio:
+        subprocess.run([
+            'ffmpeg', '-y',
+            '-i', f'{result_dir}/temp_video.mkv',
+            '-i', audio_path,
+            '-c:v', 'copy', '-c:a', 'copy',
+            '-map', '0:v:0', '-map', '1:a:0',
+            f'{result_dir}/Video_with_audio.mkv'
+        ], check=True)
+    else:
+        print("➡️ Gerando vídeo final sem áudio.")
+        shutil.copy(
+            f"{result_dir}/temp_video.mkv",
+            f"{result_dir}/Video_with_audio.mkv"
+        )
+
+# -----------------------------------------------------------
+# CONVERSÃO FINAL H265 / H264
+# -----------------------------------------------------------
 def SaveVideoToH265(result_dir, video_name, fps):
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', str(fps), '-c:v', 'libx265', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
+    subprocess.run([
+        'ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv',
+        '-vf', "scale='-2:min(1080,ih)'", '-r', str(fps),
+        '-c:v', 'libx265', '-crf', '23', '-b:v', '40000k',
+        f'{result_dir}/{video_name}'
+    ], check=True)
 
 def SaveVideoToH264(result_dir, video_name, fps):
-    subprocess.run(['ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv', '-vf', "scale='-2:min(1080,ih)'",'-r', str(fps), '-c:v', 'libx264', '-crf', '23', '-b:v', '40000k', f'{result_dir}/{video_name}'], check=True)
+    subprocess.run([
+        'ffmpeg', '-y', '-i', f'{result_dir}/Video_with_audio.mkv',
+        '-vf', "scale='-2:min(1080,ih)'", '-r', str(fps),
+        '-c:v', 'libx264', '-crf', '23', '-b:v', '40000k',
+        f'{result_dir}/{video_name}'
+    ], check=True)
 
+# -----------------------------------------------------------
+# PROCESSAMENTO DE IMAGEM
+# -----------------------------------------------------------
 def CropImageOnVerticalOrientation(Img):
     h, w = Img.shape[:2]
     target_ratio = 9 / 16
@@ -78,11 +151,6 @@ def unsharp_mask(image, kernel_size=(3, 3), sigma=1.0, amount=2.0, threshold=0):
     return sharpened
 
 def apply_hdr_effect(img, detail_strength=1.5, smooth_sigma=75):
-    """
-    Aplica efeito HDR com controle de intensidade.
-    - detail_strength: quanto mais alto, mais realce de detalhes (ex: 1.0 a 2.5)
-    - smooth_sigma: suavidade do filtro bilateral (quanto maior, menos ruído realçado)
-    """
     img_float = np.float32(img) / 255.0
     smooth = cv2.bilateralFilter(img_float, 9, smooth_sigma, smooth_sigma)
     detail = img_float - smooth
@@ -92,7 +160,7 @@ def apply_hdr_effect(img, detail_strength=1.5, smooth_sigma=75):
 
 def contrast(image, level):
     temp_img = np.int16(image)
-    temp_img = temp_img * (level/127+1) - level
+    temp_img = temp_img * (level/127 + 1) - level
     temp_img = np.clip(temp_img, 0, 255)
     return np.uint8(temp_img)
 
@@ -104,7 +172,6 @@ def process_single_image(args):
         return
     result = CropImageOnVerticalOrientation(img)
     result = contrast(result, level=5) 
-    #result = apply_hdr_effect(result, detail_strength=1.5, smooth_sigma=75)
     result = unsharp_mask(result, kernel_size=(3, 3), sigma=1.0, amount=4.0)
     cv2.imwrite(os.path.join(out_dir, basename), result)
 
@@ -115,11 +182,15 @@ def ProcessExtractedImages(extracted_dir, processed_dir):
     with Pool(processes=4) as pool:
         list(tqdm.tqdm(pool.imap_unordered(process_single_image, args), total=len(args)))
 
+# -----------------------------------------------------------
+# PIPELINE PRINCIPAL
+# -----------------------------------------------------------
 def process_video(video_path, base_result_dir):
-    video_name = Path(video_path).stem 
-    result_dir = os.path.join(base_result_dir, Path(video_path).stem)
+    video_name = Path(video_path).stem
+    result_dir = os.path.join(base_result_dir, video_name)
     extracted_dir = os.path.join(result_dir, "Extracted")
     processed_dir = os.path.join(result_dir, "Processed")
+
     os.makedirs(extracted_dir, exist_ok=True)
     os.makedirs(processed_dir, exist_ok=True)
 
@@ -128,22 +199,31 @@ def process_video(video_path, base_result_dir):
     final_filename_h265 = video_name + "_H265_.mp4"
 
     print(f" Processando: {video_name}")
+    
     ExtractFramesandAudioUsingFFMPEG(video_path, extracted_dir)
     ProcessExtractedImages(extracted_dir, processed_dir)
     SaveFramesToVideoUsingFFMPEG(result_dir, processed_dir, extracted_dir, fps)
     SaveVideoToH265(result_dir, final_filename_h265, fps)
     SaveVideoToH264(result_dir, final_filename_h264, fps)
-    print(f" Finalizado: {video_name}")
-    clean_results_directory(result_dir, [final_filename_h264,final_filename_h265])
 
+    print(f" Finalizado: {video_name}")
+    clean_results_directory(result_dir, [video_name + "_NOSHARP_H264_.mp4", video_name + "_NOSHARP_H265_.mp4", final_filename_h264, final_filename_h265])
+
+# -----------------------------------------------------------
+# MAIN
+# -----------------------------------------------------------
 if __name__ == "__main__":
     project_dir = os.path.dirname(os.path.abspath(__file__))
     source_dir = os.path.join(project_dir, "Source_Videos")
     result_base = os.path.join(project_dir, "Results")
 
     os.makedirs(result_base, exist_ok=True)
-    videos = [os.path.join(source_dir, f) for f in os.listdir(source_dir) if f.lower().endswith(".mov")]
+
+    videos = [
+        os.path.join(source_dir, f)
+        for f in os.listdir(source_dir)
+        if f.lower().endswith(".mp4")
+    ]
 
     for video in videos:
         process_video(video, result_base)
-
