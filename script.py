@@ -172,7 +172,7 @@ def process_single_image(args):
         return
     result = CropImageOnVerticalOrientation(img)
     result = contrast(result, level=5) 
-    result = unsharp_mask(result, kernel_size=(3, 3), sigma=1.0, amount=4.0)
+    result = unsharp_mask(result, kernel_size=(3, 3), sigma=1.0, amount=2.0)
     cv2.imwrite(os.path.join(out_dir, basename), result)
 
 def ProcessExtractedImages(extracted_dir, processed_dir):
@@ -207,7 +207,7 @@ def process_video(video_path, base_result_dir):
     SaveVideoToH264(result_dir, final_filename_h264, fps)
 
     print(f" Finalizado: {video_name}")
-    clean_results_directory(result_dir, [video_name + "_NOSHARP_H264_.mp4", video_name + "_NOSHARP_H265_.mp4", final_filename_h264, final_filename_h265])
+    clean_results_directory(result_dir, [final_filename_h264, final_filename_h265])
 
 # -----------------------------------------------------------
 # MAIN
@@ -227,3 +227,4 @@ if __name__ == "__main__":
 
     for video in videos:
         process_video(video, result_base)
+
